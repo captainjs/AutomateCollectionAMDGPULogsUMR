@@ -1,0 +1,83 @@
+---
+- name: Playbook for capturing amdgpu UMR logs
+  #To be run on the corresponding hosts
+  hosts: test0
+  remote_user: root
+  vars:
+    - instancenumber:
+        - 1
+        - 2
+        - 3
+  tasks:
+
+    - name: Create directory
+      file:
+        path: /var/tmp/UMRcaptures/
+        state: directory
+
+    - debug:
+        var: "{{ item }}"
+      loop: 
+        - instancenumber
+      
+    - name: Upload the UMR tool rpm
+      copy:
+        src: files/umr-1.0-2.20190403git1139876.el7.x86_64.rpm
+        dest: /var/tmp/UMRcaptures/
+ 
+    - name: Install the UMR tool rpm
+      yum:
+        name: /var/tmp/UMRcaptures/umr-1.0-2.20190403git1139876.el7.x86_64.rpm
+        state: present
+    
+    - name: Outputdmidecode to see later if it is a server Supermicro which has 3 GPU or an Asus server with 1 GPU
+      shell: dmidecode
+      register: Outputdmidecode  
+
+    #the following has to be adapted to instance 1,2 or 3 depending on which gpu is hung
+    #the umrring should be also adapted from 1,2,3
+    - name: Run the command to capture the UMR log of the three GPU information on Supermicro
+      shell: umr --instance {{ item }} --ring gfx > /var/tmp/UMRcaptures/umrring{{ item }}_{{ inventory_hostname }}.txt
+      loop:
+        - 1
+        - 2
+        - 3
+      when:  Outputdmidecode.stdout is search ("Supermicro")
+    
+    - name: Collect the UMR output for each GPU to the server where Ansible is running
+      fetch:
+        src: "/var/tmp/UMRcaptures/umrring{{ item }}_{{ inventory_hostname }}.txt"
+        dest: "/tmp/umrringlogsSBBProd/umrring{{ item }}-{{ inventory_hostname }}_{{ ansible_date_time.iso8601 }}"
+      loop:
+        - 1
+        - 2
+        - 3
+      when:  Outputdmidecode.stdout is search ("Supermicro")
+   
+    - name: Run the command to capture UMR log of the GPU information on Asus
+      shell: umr --instance {{ item }} --ring gfx > /var/tmp/UMRcaptures/umrring{{ item }}_{{ inventory_hostname }}.txt
+      loop:
+        - 1
+       # - 2
+       # - 3
+      when:  Outputdmidecode.stdout is search ("ASUSTeK COMPUTER")
+    
+    - name: Collect the UMR output for the GPU to the server where Ansible is running
+      fetch:
+        src: "/var/tmp/UMRcaptures/umrring{{ item }}_{{ inventory_hostname }}.txt"
+        dest: "/tmp/umrringlogsSBBProd/umrring{{ item }}-{{ inventory_hostname }}_{{ ansible_date_time.iso8601 }}"
+      loop:
+        - 1
+        #- 2
+        #- 3
+      when:  Outputdmidecode.stdout is search ("ASUSTeK COMPUTER")
+  
+    - name: Uninstall the umr package using yum
+      yum:
+        name: umr
+        state: absent
+
+    - name: Remove the UMRcaptures folder on the remote server with GPU
+      file:
+        path: /var/tmp/UMRcaptures/ 
+        state: absent 
